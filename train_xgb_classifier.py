@@ -8,6 +8,7 @@ from skopt import BayesSearchCV
 from skopt.space import Real, Integer
 import pickle
 import matplotlib.pyplot as plt
+from model_training import get_cv_indices_forward_chain
 
 
 def train_classifier():
@@ -92,7 +93,7 @@ def train_full(file_path):
     data = pd.read_csv(file_path, encoding="latin1").sort_values(
         by="Date", ascending=True
     )
-    print(data.head()["Date"])
+    print(data["FTR"].value_counts())
     label_encoder = LabelEncoder()
     data["FTR"] = label_encoder.fit_transform(data["FTR"])
     y = data["FTR"]
@@ -106,8 +107,6 @@ def train_full(file_path):
     # split 80-20 first 80% for training, 20% for testing
     X_train, X_test = X[: int(0.8 * len(X))], X[int(0.8 * len(X)) :]
     y_train, y_test = y[: int(0.8 * len(y))], y[int(0.8 * len(y)) :]
-
-    # train_test_split(X, y, test_size=0.2, random_state=42)
 
     save_path = "models/full_data_params.pkl"
     best_params = None
@@ -131,7 +130,7 @@ def train_full(file_path):
             estimator=xgb_c,
             search_spaces=search_space,
             n_iter=25,
-            cv=3,
+            cv=get_cv_indices_forward_chain(X_train, 3),
             n_jobs=-1,
             verbose=2,
         )
@@ -159,10 +158,10 @@ def train_full(file_path):
     accuracy = accuracy_score(y_test, pred)
     print(f"Accuracy: {accuracy}")
 
-    # ax = xgb.plot_importance(xgb_best, importance_type="weight")
-    # plt.show()
+    ax = xgb.plot_importance(xgb_best, importance_type="weight", max_num_features=20)
+    plt.show()
 
 
 train_full(
-    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/ema_features_17_24.csv"
+    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/ema_features_17_24_span=10.csv"
 )

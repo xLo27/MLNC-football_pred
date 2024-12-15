@@ -1,11 +1,9 @@
 import pandas as pd
 from datetime import datetime
-from sklearn.model_selection import train_test_split
-import xgboost as xgb
 import numpy as np
 import os
-from sklearn.metrics import accuracy_score
-from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler
+from model_training import get_cv_score
+import matplotlib.pyplot as plt
 
 
 def drop_duplicate_columns(data: pd.DataFrame) -> pd.DataFrame:
@@ -25,51 +23,46 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
 
     print("Original Length:", len(data), len(data.columns))
 
-    # scaler = StandardScaler()
-    # X = pd.DataFrame(scaler.fit_transform(data), columns=X.columns)
-    # label_encoder = LabelEncoder()
-    # data["FTR"] = label_encoder.fit_transform(data["FTR"])
-    # print(data["FTR"].value_counts())
-
     data = data.dropna(how="all")
     print("After dropping NaN:", len(data), len(data.columns))
     data = data.drop_duplicates()
     print("After dropping duplicate rows:", len(data), len(data.columns))
     data = drop_duplicate_columns(data)
     print("After dropping duplicate columns:", len(data), len(data.columns))
-    data["HomeGame"] = ~data["Unnamed: 13"].isna()
+
+    data["HomeGame"] = data["Unnamed: 13"].isna()
     data = data.drop(columns=["Unnamed: 13", "Match Report", "Comp", "Rk"])
     print("After dropping columns:", len(data), len(data.columns))
 
     data["Date"] = pd.to_datetime(data["Date"])
-    # rename GA and GF based on whether homegame = true or false
+    data = data.drop(columns=["Result"])
 
-    data["GoalsAway"] = data.apply(
-        lambda row: row["GA"] if row["HomeGame"] else row["GF"], axis=1
-    )
-    data["GoalsHome"] = data.apply(
-        lambda row: row["GF"] if row["HomeGame"] else row["GA"], axis=1
-    )
-
-    data = data.drop(columns=["Result", "GA", "GF"])
-    # add FTR column, with H/D/A based on GoalsHome and GoalsAway
     data["FTR"] = data.apply(
         lambda row: (
-            "H"
-            if row["GoalsHome"] > row["GoalsAway"]
-            else "A" if row["GoalsHome"] < row["GoalsAway"] else "D"
+            "D"
+            if row["GF"] == row["GA"]
+            else (
+                "H"
+                if (
+                    row["GF" if row["HomeGame"] else "GA"]
+                    > row["GA" if row["HomeGame"] else "GF"]
+                )
+                else "A"
+            )
         ),
         axis=1,
     )
+    name_map = {"1/3.1": "Carries_1/3", "Att": "Att_passes", "Att.1": "Att_passes_"}
     # print to file ambiguous named columns (sorted)
-    lines = []
-    with open("ambiguous_columns.txt", "w") as f:
-        for column in data.columns:
-            if "." in column:
-                lines.append(column)
-        lines.sort()
-        for line in lines:
-            f.write(line + "\n")
+    # lines = []
+    # with open("ambiguous_columns.txt", "w") as f:
+    #     for column in data.columns:
+    #         if "." in column:
+    #             lines.append(column)
+    #     lines.sort()
+    #     for line in lines:
+    #         f.write(line + "\n")
+
     return data.copy()
 
 
@@ -80,7 +73,7 @@ def create_ema_features(data: pd.DataFrame, span):
     ema_features = []
     for feature_name in feature_names:
         feature_ema = data.groupby("Team")[feature_name].transform(
-            lambda row: row.ewm(span=span, min_periods=2).mean()
+            lambda row: row.ewm(span=span, min_periods=2).mean().shift(1)
         )
         ema_features.append(pd.Series(feature_ema, name=feature_name))
     df_ema_features = pd.concat(
@@ -128,12 +121,31 @@ def restructure_data(data: pd.DataFrame):
     return data_merged
 
 
-def optimize_ema_span(data: pd.DataFrame):
-    pass
+def optimize_ema(data: pd.DataFrame):
+    scores = []
+    best_score = np.float16("inf")
+    best_span = 0
+    spans = range(1, 500, 10)
+    for i, span in enumerate(spans):
+        if i % 10 == 0:
+            print(f"Optimizing span {span}")
+        data_features = create_ema_features(data, span)
+        data_restructured = restructure_data(data_features)
+        score = get_cv_score(data_restructured)
+        scores.append(score)
+        if score * -1 < best_score:
+            best_score = score * -1
+            best_span = span
+    print(f"Best span: {best_span}, Best score: {best_score}")
+    # plot plt graph of scores
+
+    plt.plot(spans, -1 * pd.Series(scores))
+    plt.xlabel("Span")
+    plt.ylabel("Log Loss")
+    plt.show()
 
 
 # Load the CSV file
-# file_path = "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/transformed2.csv"
 if __name__ == "__main__":
     data_dir = "data"
     data_files = filter(
@@ -146,12 +158,12 @@ if __name__ == "__main__":
     )
     raw_data = raw_data.reset_index(drop=True)
     data_cleaned = clean_data(raw_data)
-    data_features = create_ema_features(data_cleaned, 5)
+    print(data_cleaned["FTR"].value_counts())
+    optimize_ema(data_cleaned)
+    ema_span = 10
+    data_features = create_ema_features(data_cleaned, ema_span)
     data_restructured = restructure_data(data_features)
-
-    with open("restructured_dtypes.txt", "w") as f:
-        f.write(str(data_restructured.dtypes.to_string()))
-        f.write(data_restructured.head().to_string())
-
-    print(data_restructured)
-    data_restructured.to_csv("data/ema_features_17_24.csv", index=False)
+    data_restructured.to_csv(
+        f"data/ema_features_17_24_span={ema_span}.csv", index=False
+    )
+    print(data_restructured.shape)
