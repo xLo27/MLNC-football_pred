@@ -40,19 +40,27 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
     data["FTR"] = data.apply(
         lambda row: (
             "D"
-            if row["GF"] == row["GA"]
-            else (
-                "H"
-                if (
-                    row["GF" if row["HomeGame"] else "GA"]
-                    > row["GA" if row["HomeGame"] else "GF"]
-                )
-                else "A"
-            )
+            if row["GD"] == 0
+            else ("H" if (not (row["GD"] > 0) ^ row["HomeGame"]) else "A")
         ),
         axis=1,
     )
     name_map = {"1/3.1": "Carries_1/3", "Att": "Att_passes", "Att.1": "Att_passes_"}
+    opta_cols = [
+        "xG",
+        "npxG",
+        "xGD",
+        "npxGD",
+        "xAG",
+        "xA",
+        "G-xG",
+        "np:G-xG",
+        "A-xAG",
+        "npxG/Sh",
+    ]
+    # TODO: Figure out if should include these
+    data = data.drop(columns=opta_cols)
+
     # print to file ambiguous named columns (sorted)
     # lines = []
     # with open("ambiguous_columns.txt", "w") as f:
@@ -159,8 +167,9 @@ if __name__ == "__main__":
     raw_data = raw_data.reset_index(drop=True)
     data_cleaned = clean_data(raw_data)
     print(data_cleaned["FTR"].value_counts())
-    optimize_ema(data_cleaned)
-    ema_span = 10
+    # TODO: move this somewhere else
+    # optimize_ema(data_cleaned)
+    ema_span = 50
     data_features = create_ema_features(data_cleaned, ema_span)
     data_restructured = restructure_data(data_features)
     data_restructured.to_csv(
