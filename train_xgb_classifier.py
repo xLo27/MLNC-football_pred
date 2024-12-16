@@ -1,6 +1,6 @@
 import pandas as pd
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
-from imblearn.over_sampling import RandomOverSampler, SMOTE
+from imblearn.over_sampling import RandomOverSampler, SMOTE, ADASYN
 from collections import Counter
 import xgboost as xgb
 import numpy as np
@@ -39,23 +39,23 @@ def train_full(file_path):
         "f_ATFormPtsStr",
     ]
     elo_cols = [col for col in data.columns if col.startswith("f_el")]
-
+    pi_cols = [col for col in data.columns if col.startswith("f_pi")]
     # X = all non object columns
-    data = data.drop(columns=object_columns)
+    data = data.drop(columns=object_columns + pi_cols)
     X = data[[col for col in data.columns if col.startswith("f_")]]
     scaler = StandardScaler()
     X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
     # print("Resampled dataset shape %s" % Counter(y_res))
-    # Split the data into training and testing sets
-    # split 80-20 first 80% for training, 20% for testing
     X_train, X_test = X[: int(0.8 * len(X))], X[int(0.8 * len(X)) :]
     y_train, y_test = y[: int(0.8 * len(y))], y[int(0.8 * len(y)) :]
-    oversampler = SMOTE(k_neighbors=2)
-    # oversampler = RandomOverSampler()
-    # find rows of X_train that have NAN values
+    # Resample the training data
+    # oversampler = SMOTE(k_neighbors=3, random_state=1000)
+    oversampler = RandomOverSampler(random_state=1000)
+    # oversampler = ADASYN(random_state=1000)
     X_res, y_res = oversampler.fit_resample(X_train, y_train)
     X_train, y_train = X_res, y_res
     # print shapes
+    print("X_TRAIN", X_train.shape)
     print("Y_TRAIN", Counter(y_train))
     print("Y_TEST", Counter(y_test))
     save_path = "models/full_data_params.pkl"
@@ -107,21 +107,23 @@ def train_full(file_path):
     )
     print(y_train.value_counts())
     xgb_best.fit(X_train, y_train)
-    pred = xgb_best.predict(X_test)
+    y_pred = xgb_best.predict(X_test)
     print("predictions")
-    print(pd.DataFrame(pred).value_counts())
+    print(pd.DataFrame(y_pred).value_counts())
     print(pd.DataFrame(y_test).value_counts())
     # error_rate = np.sum(pred != y_test) / y_test.shape[0]
     # print("Test error using softmax = {}".format(error_rate))
 
     # Evaluate the model
-    accuracy = accuracy_score(y_test, pred)
+    accuracy = accuracy_score(y_test, y_pred)
     print(f"Accuracy: {accuracy}")
-    print("Confusion Matrix:\n", confusion_matrix(y_test, pred))
+    print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
+    report = classification_report(y_test, y_pred)
+    print(report)
     ax = xgb.plot_importance(xgb_best, importance_type="weight", max_num_features=20)
     plt.show()
 
 
 train_full(
-    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_ema_span=30.csv"
+    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_full_ema_span=30.csv"
 )

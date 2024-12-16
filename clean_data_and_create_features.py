@@ -4,6 +4,7 @@ import numpy as np
 import os
 from util_training import get_cv_score
 import matplotlib.pyplot as plt
+from pi_rating import prepare_data_for_pi, get_pi_ratings
 
 
 def drop_duplicate_columns(data: pd.DataFrame) -> pd.DataFrame:
@@ -117,30 +118,6 @@ def restructure_data(data: pd.DataFrame):
     )
     data_merged = data_merged.drop(columns=unwanted_cols).dropna()
     return data_merged
-
-
-def optimize_ema(data: pd.DataFrame):
-    scores = []
-    best_score = np.float16("inf")
-    best_span = 0
-    spans = range(1, 500, 10)
-    for i, span in enumerate(spans):
-        if i % 10 == 0:
-            print(f"Optimizing span {span}")
-        data_features = create_ema_features(data, span)
-        data_restructured = restructure_data(data_features)
-        score = get_cv_score(data_restructured)
-        scores.append(score)
-        if score * -1 < best_score:
-            best_score = score * -1
-            best_span = span
-    print(f"Best span: {best_span}, Best score: {best_score}")
-    # plot plt graph of scores
-
-    plt.plot(spans, -1 * pd.Series(scores))
-    plt.xlabel("Span")
-    plt.ylabel("Log Loss")
-    plt.show()
 
 
 def add_seasonal_features(df: pd.DataFrame):
@@ -306,7 +283,6 @@ def add_team_elo(df: pd.DataFrame):
     # read data/team_elo.csv
     df_elo = pd.read_csv("data/team_elo.csv")
     # add a column to df for home team elo and away team elo
-    print(df_elo.columns)
     for elo_column in [col for col in df_elo.columns if col != "Team"]:
         # Create a dictionary for quick lookup for the current ELO column
         elo_dict = df_elo.set_index("Team")[elo_column].to_dict()
@@ -314,6 +290,17 @@ def add_team_elo(df: pd.DataFrame):
         df[f"f_elo_{elo_column}_home"] = df["HomeTeam"].map(elo_dict)
         df[f"f_elo_{elo_column}_away"] = df["AwayTeam"].map(elo_dict)
     df = df.fillna(0)
+    return df.copy()
+
+
+def add_pi_rating(df: pd.DataFrame):
+    pi_params = [1, 0.1, 0.3]
+    df_ratings = get_pi_ratings(df, pi_params)
+    df = pd.merge(
+        df,
+        df_ratings,
+        on=["Date", "HomeTeam", "AwayTeam"],
+    )
     return df.copy()
 
 
@@ -331,16 +318,20 @@ if __name__ == "__main__":
     raw_data = raw_data.reset_index(drop=True)
     data_cleaned = clean_data(raw_data).dropna()
     print("Data cleaned shape:", data_cleaned.shape)
-    # TODO: move this somewhere else
-    # optimize_ema(data_cleaned)
     ema_span = 30
-    data_features = create_ema_features(data_cleaned, ema_span)
+    data_features = create_ema_features(data_cleaned, ema_span).dropna()
     print("Data ema features shape:", data_features.shape)
     data_restructured = restructure_data(data_features)
+    data_restructured = data_restructured.drop_duplicates(
+        subset=["Date", "HomeTeam", "AwayTeam"]
+    )
     print("Data restructured shape:", data_restructured.shape)
-    data_with_stats = add_seasonal_features(data_restructured)
-    print("Data shape after adding seasonal features:", data_with_stats.shape)
-    data_final = add_team_elo(data_with_stats)
-    print("Data shape after adding team elo:", data_final.shape)
+    df_features = add_seasonal_features(data_restructured)
+    print("Data shape after adding seasonal features:", df_features.shape)
+    df_features = add_team_elo(df_features).dropna()
+    print("Data shape after adding team elo:", df_features.shape)
+    df_features = add_pi_rating(df_features).dropna()
+    print("Data shape after adding pi rating:", df_features.shape)
+    print(df_features.reset_index(drop=True).tail(10))
     print("Writing data to file")
-    data_final.to_csv(f"data/features_17_24_ema_span={ema_span}.csv", index=False)
+    df_features.to_csv(f"data/features_17_24_full_ema_span={ema_span}.csv", index=False)
