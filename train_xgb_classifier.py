@@ -16,11 +16,28 @@ def train_full(file_path):
     data = pd.read_csv(file_path, encoding="latin1").sort_values(
         by="Date", ascending=True
     )
+    print(data.shape)
     data["FTR"] = data["FTR"].astype("category")
     label_encoder = LabelEncoder()
     data["FTR"] = label_encoder.fit_transform(data["FTR"])
     y = data["FTR"]
     # Prepare the data
+    object_columns = [
+        "f_HM1",
+        "f_HM2",
+        "f_HM3",
+        "f_HM4",
+        "f_HM5",
+        "f_AM1",
+        "f_AM2",
+        "f_AM3",
+        "f_AM4",
+        "f_AM5",
+        "f_HTFormPtsStr",
+        "f_ATFormPtsStr",
+    ]
+    # X = all non object columns
+    data = data.drop(columns=object_columns)
     X = data[[col for col in data.columns if col.startswith("f_")]]
     scaler = StandardScaler()
     X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
@@ -95,5 +112,5 @@ def train_full(file_path):
 
 
 train_full(
-    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/ema_features_17_24_span=30.csv"
+    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_ema_span=50.csv"
 )

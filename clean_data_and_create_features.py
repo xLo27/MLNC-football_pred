@@ -76,19 +76,27 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
 
 def create_ema_features(data: pd.DataFrame, span):
     non_feature_cols = ["Date", "HomeGame", "FTR", "Team", "Opp"]
-    df_ema_features = data[non_feature_cols].copy().sort_values(by=["Date"])
-    feature_names = data.drop(columns=non_feature_cols).columns
+    # df_ema_features = data[non_feature_cols].copy().sort_values(by=["Date"])
+    # feature_names = data.drop(columns=non_feature_cols).columns
+    # ema_features = []
+    # for feature_name in feature_names:
+    #     feature_ema = data.groupby("Team")[feature_name].transform(
+    #         lambda row: row.ewm(span=span, min_periods=2).mean().shift(1)
+    #     )
+    #     ema_features.append(pd.Series(feature_ema, name=feature_name))
+    # df_ema_features = pd.concat(
+    #     [df_ema_features, pd.concat(ema_features, axis=1)], axis=1
+    # )
+    # return df_ema_features
+    df = data
+    feature_names = df.drop(columns=non_feature_cols).columns
     ema_features = []
     for feature_name in feature_names:
         feature_ema = data.groupby("Team")[feature_name].transform(
             lambda row: row.ewm(span=span, min_periods=2).mean().shift(1)
         )
-        ema_features.append(pd.Series(feature_ema, name=feature_name))
-    df_ema_features = pd.concat(
-        [df_ema_features, pd.concat(ema_features, axis=1)], axis=1
-    )
-
-    return df_ema_features.copy()
+        df["f_" + feature_name] = feature_ema
+    return df.copy()
 
 
 def restructure_data(data: pd.DataFrame):
@@ -119,13 +127,13 @@ def restructure_data(data: pd.DataFrame):
         )
     )
     data_merged = data_merged.drop(columns=unwanted_cols).dropna()
-    data_merged = data_merged.rename(
-        columns={
-            col: "f_" + col
-            for col in data_merged.columns
-            if col not in non_feature_cols
-        }
-    )
+    # data_merged = data_merged.rename(
+    #     columns={
+    #         col: "f_" + col
+    #         for col in data_merged.columns
+    #         if col not in non_feature_cols
+    #     }
+    # )
     return data_merged
 
 
@@ -183,74 +191,13 @@ def add_seasonal_features(df: pd.DataFrame):
     matchweek = 1
     last_date = df["Date"].iloc[0]
 
-    # Create new columns for the target dataset
-    columns = [
-        "Date",
-        "HomeTeam",
-        "AwayTeam",
-        "FTHG",
-        "FTAG",
-        "FTR",
-        "HTHG",
-        "HTAG",
-        "HTR",
-        "Referee",
-        "HS",
-        "AS",
-        "HST",
-        "AST",
-        "HC",
-        "AC",
-        "HF",
-        "AF",
-        "HY",
-        "AY",
-        "HR",
-        "AR",
-        "HTGS",
-        "ATGS",
-        "HTGC",
-        "ATGC",
-        "HTP",
-        "ATP",
-        "HM1",
-        "HM2",
-        "HM3",
-        "HM4",
-        "HM5",
-        "AM1",
-        "AM2",
-        "AM3",
-        "AM4",
-        "AM5",
-        "MW",
-        "HTFormPtsStr",
-        "ATFormPtsStr",
-        "HTFormPts",
-        "ATFormPts",
-        "HTWinStreak3",
-        "HTWinStreak5",
-        "HTLossStreak3",
-        "HTLossStreak5",
-        "ATWinStreak3",
-        "ATWinStreak5",
-        "ATLossStreak3",
-        "ATLossStreak5",
-        "HTGD",
-        "ATGD",
-        "DiffPts",
-        "DiffFormPts",
-    ]
-
-    transformed_data = []
-
+    df = df.sort_values(by="Date", ascending=True)
+    new_features = []
     # Iterate over each row in the dataset
     for _, row in df.iterrows():
         home_team = row["HomeTeam"]
         away_team = row["AwayTeam"]
-        fthg, ftag = 0, 0
-        fthg = row["FTHG"]
-        ftag = row["FTAG"]
+        fthg, ftag = row["GF_home"], row["GF_away"]
         ftr = row["FTR"]
         date = row["Date"]
 
@@ -292,58 +239,57 @@ def add_seasonal_features(df: pd.DataFrame):
             away["LossStreak5"],
         ) = update_streaks(away["Form"])
 
-        # Append data to the new dataset
-        transformed_data.append(
-            [
-                date,
-                home_team,
-                away_team,
-                fthg,
-                ftag,
-                ftr,
-                row["HTHG"],
-                row["HTAG"],
-                row["HTR"],
-                row["Referee"],
-                row["HS"],
-                row["AS"],
-                row["HST"],
-                row["AST"],
-                row["HC"],
-                row["AC"],
-                row["HF"],
-                row["AF"],
-                row["HY"],
-                row["AY"],
-                row["HR"],
-                row["AR"],
-                home["GoalsScored"],
-                away["GoalsScored"],
-                home["GoalsConceded"],
-                away["GoalsConceded"],
-                home["Points"],
-                away["Points"],
-                *home["Form"],
-                *away["Form"],
-                matchweek,
-                "".join(home["Form"]),
-                "".join(away["Form"]),
-                ht_form_pts,
-                at_form_pts,
-                home["WinStreak3"],
-                home["WinStreak5"],
-                home["LossStreak3"],
-                home["LossStreak5"],
-                away["WinStreak3"],
-                away["WinStreak5"],
-                away["LossStreak3"],
-                away["LossStreak5"],
-                htgd,
-                atgd,
-                home["Points"] - away["Points"],
-                ht_form_pts - at_form_pts,
-            ]
+        cum_stats = {
+            "HTGS": home["GoalsScored"],
+            "ATGS": away["GoalsScored"],
+            "HTGC": home["GoalsConceded"],
+            "ATGC": away["GoalsConceded"],
+            "HTP": home["Points"],
+            "ATP": away["Points"],
+            "MatchWeek": matchweek,
+        }
+        win_loss_streak_stats = {
+            "HTWinStreak3": home["WinStreak3"],
+            "HTWinStreak5": home["WinStreak5"],
+            "HTLossStreak3": home["LossStreak3"],
+            "HTLossStreak5": home["LossStreak5"],
+            "ATWinStreak3": away["WinStreak3"],
+            "ATWinStreak5": away["WinStreak5"],
+            "ATLossStreak3": away["LossStreak3"],
+            "ATLossStreak5": away["LossStreak5"],
+        }
+        # hm1 to atformpts
+        recent_form_stats = {
+            "HM1": home["Form"][0],
+            "HM2": home["Form"][1],
+            "HM3": home["Form"][2],
+            "HM4": home["Form"][3],
+            "HM5": home["Form"][4],
+            "AM1": away["Form"][0],
+            "AM2": away["Form"][1],
+            "AM3": away["Form"][2],
+            "AM4": away["Form"][3],
+            "AM5": away["Form"][4],
+            "HTFormPtsStr": "".join(home["Form"]),
+            "ATFormPtsStr": "".join(away["Form"]),
+            "HTFormPts": ht_form_pts,
+            "ATFormPts": at_form_pts,
+        }
+        goal_point_diff_stats = {
+            "HTGD": htgd,
+            "ATGD": atgd,
+            "DiffPts": home["Points"] - away["Points"],
+            "DiffFormPts": ht_form_pts - at_form_pts,
+        }
+
+        row_stats = (
+            cum_stats
+            | win_loss_streak_stats
+            | recent_form_stats
+            | goal_point_diff_stats
         )
+        row_stats = {f"f_{k}": v for k, v in row_stats.items()}
+        new_features.append(row_stats)
 
         # Update stats after the match
         home["GoalsScored"] += fthg
@@ -369,6 +315,22 @@ def add_seasonal_features(df: pd.DataFrame):
         # Update matchweek and last_date
         matchweek += 1
         last_date = date
+    new_features = pd.DataFrame(new_features, index=df.index)
+    df = pd.concat([df, new_features], axis=1)
+    return df.copy()
+
+
+def add_team_elo(df: pd.DataFrame):
+    # read data/team_elo.csv
+    df_elo = pd.read_csv("data/team_elo.csv")
+    # add a column to df for home team elo and away team elo
+    for elo_column in [col for col in df_elo.columns if col != "Team"]:
+        # Create a dictionary for quick lookup for the current ELO column
+        elo_dict = df_elo.set_index("Team")[elo_column].to_dict()
+        # Add corresponding home and away ELO columns to df_matches
+        df[f"f_{elo_column.lower()}_home"] = df["HomeTeam"].map(elo_dict)
+        df[f"f_{elo_column.lower()}_away"] = df["AwayTeam"].map(elo_dict)
+    return df.copy()
 
 
 # Load the CSV file
@@ -383,15 +345,18 @@ if __name__ == "__main__":
         for file in data_files
     )
     raw_data = raw_data.reset_index(drop=True)
-    data_cleaned = clean_data(raw_data)
-    print(data_cleaned["FTR"].value_counts())
+    data_cleaned = clean_data(raw_data).dropna()
+    print("Data cleaned shape:", data_cleaned.shape)
     # TODO: move this somewhere else
     # optimize_ema(data_cleaned)
     ema_span = 50
     data_features = create_ema_features(data_cleaned, ema_span)
+    print("Data ema features shape:", data_features.shape)
     data_restructured = restructure_data(data_features)
-    # data = add_seasonal_features(data_restructured)
-    data_restructured.to_csv(
-        f"data/ema_features_17_24_span={ema_span}.csv", index=False
-    )
-    print(data_restructured.shape)
+    print("Data restructured shape:", data_restructured.shape)
+    data_with_stats = add_seasonal_features(data_restructured)
+    print("Data shape after adding seasonal features:", data_with_stats.shape)
+    data_final = add_team_elo(data_with_stats)
+    print("Data shape after adding team elo:", data_final.shape)
+    print("ok")
+    data_final.to_csv(f"data/features_17_24_ema_span={ema_span}.csv", index=False)
