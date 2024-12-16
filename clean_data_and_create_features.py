@@ -31,7 +31,7 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
     data = drop_duplicate_columns(data)
     print("After dropping duplicate columns:", len(data), len(data.columns))
 
-    data["HomeGame"] = data["Unnamed: 13"].isna()
+    data["HomeGame"] = data["Unnamed: 13"].eq("@")
     data = data.drop(columns=["Unnamed: 13", "Match Report", "Comp", "Rk"])
     print("After dropping columns:", len(data), len(data.columns))
 
@@ -86,7 +86,7 @@ def create_ema_features(data: pd.DataFrame, span):
         )
         ema_features.append(pd.Series(feature_ema, name="f_" + feature_name))
     df = pd.concat([df, pd.concat(ema_features, axis=1)], axis=1)
-    return df.dropna()
+    return df.dropna().reset_index(drop=True)
 
 
 def restructure_data(data: pd.DataFrame):
@@ -100,24 +100,24 @@ def restructure_data(data: pd.DataFrame):
         .rename(columns={"Team": "HomeTeam"})
         .pipe(
             pd.merge,
-            data.query("HomeGame == False").rename(columns={"Team": "AwayTeam"}),
+            data.query("HomeGame == False")
+            .rename(columns={"Team": "AwayTeam"})
+            .drop(columns="FTR"),
             left_on=[
                 "Date",
-                "FTR",
                 "HomeTeam",
                 "Opp",
             ],
             right_on=[
                 "Date",
-                "FTR",
                 "Opp",
                 "AwayTeam",
             ],
             suffixes=("_home", "_away"),
         )
     )
-    data_merged = data_merged.drop(columns=unwanted_cols).dropna()
-    return data_merged
+    data_merged = data_merged.drop(columns=unwanted_cols)
+    return data_merged.reset_index(drop=True)
 
 
 def add_seasonal_features(df: pd.DataFrame):
@@ -304,9 +304,7 @@ def add_pi_rating(df: pd.DataFrame):
     return df.copy()
 
 
-# Load the CSV file
-if __name__ == "__main__":
-    data_dir = "data"
+def get_all_season_data(data_dir):
     data_files = filter(
         lambda x: x.endswith("_games.csv"),
         os.listdir(data_dir),
@@ -315,11 +313,13 @@ if __name__ == "__main__":
         pd.read_csv(os.path.join(data_dir, file), encoding="latin1")
         for file in data_files
     )
-    raw_data = raw_data.reset_index(drop=True)
+    return raw_data.reset_index(drop=True)
+
+
+def transform_data_full(raw_data, ema_span=30):
     data_cleaned = clean_data(raw_data).dropna()
     print("Data cleaned shape:", data_cleaned.shape)
-    ema_span = 30
-    data_features = create_ema_features(data_cleaned, ema_span).dropna()
+    data_features = create_ema_features(data_cleaned, ema_span)
     print("Data ema features shape:", data_features.shape)
     data_restructured = restructure_data(data_features)
     data_restructured = data_restructured.drop_duplicates(
@@ -328,10 +328,20 @@ if __name__ == "__main__":
     print("Data restructured shape:", data_restructured.shape)
     df_features = add_seasonal_features(data_restructured)
     print("Data shape after adding seasonal features:", df_features.shape)
-    df_features = add_team_elo(df_features).dropna()
+    df_features = add_team_elo(df_features).dropna(how="all")
     print("Data shape after adding team elo:", df_features.shape)
-    df_features = add_pi_rating(df_features).dropna()
+    df_features = add_pi_rating(df_features).dropna(how="all")
+    return df_features.sort_values(by="Date", ascending=True).reset_index(drop=True)
+
+
+# Load the CSV file
+if __name__ == "__main__":
+    data_dir = "data"
+    raw_data = get_all_season_data(data_dir)
+    raw_data = raw_data.reset_index(drop=True)
+    ema_span = 30
+    df_features = transform_data_full(raw_data, ema_span=ema_span)
     print("Data shape after adding pi rating:", df_features.shape)
-    print(df_features.reset_index(drop=True).tail(10))
+    print(df_features.reset_index(drop=True).tail(2))
     print("Writing data to file")
     df_features.to_csv(f"data/features_17_24_full_ema_span={ema_span}.csv", index=False)
