@@ -2,7 +2,7 @@ import pandas as pd
 from datetime import datetime
 import numpy as np
 import os
-from model_training import get_cv_score
+from util_training import get_cv_score
 import matplotlib.pyplot as plt
 
 
@@ -75,28 +75,17 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
 
 
 def create_ema_features(data: pd.DataFrame, span):
-    non_feature_cols = ["Date", "HomeGame", "FTR", "Team", "Opp"]
-    # df_ema_features = data[non_feature_cols].copy().sort_values(by=["Date"])
-    # feature_names = data.drop(columns=non_feature_cols).columns
-    # ema_features = []
-    # for feature_name in feature_names:
-    #     feature_ema = data.groupby("Team")[feature_name].transform(
-    #         lambda row: row.ewm(span=span, min_periods=2).mean().shift(1)
-    #     )
-    #     ema_features.append(pd.Series(feature_ema, name=feature_name))
-    # df_ema_features = pd.concat(
-    #     [df_ema_features, pd.concat(ema_features, axis=1)], axis=1
-    # )
-    # return df_ema_features
     df = data
+    non_feature_cols = ["Date", "HomeGame", "FTR", "Team", "Opp"]
     feature_names = df.drop(columns=non_feature_cols).columns
     ema_features = []
     for feature_name in feature_names:
         feature_ema = data.groupby("Team")[feature_name].transform(
             lambda row: row.ewm(span=span, min_periods=2).mean().shift(1)
         )
-        df["f_" + feature_name] = feature_ema
-    return df.copy()
+        ema_features.append(pd.Series(feature_ema, name="f_" + feature_name))
+    df = pd.concat([df, pd.concat(ema_features, axis=1)], axis=1)
+    return df.dropna()
 
 
 def restructure_data(data: pd.DataFrame):
@@ -127,13 +116,6 @@ def restructure_data(data: pd.DataFrame):
         )
     )
     data_merged = data_merged.drop(columns=unwanted_cols).dropna()
-    # data_merged = data_merged.rename(
-    #     columns={
-    #         col: "f_" + col
-    #         for col in data_merged.columns
-    #         if col not in non_feature_cols
-    #     }
-    # )
     return data_merged
 
 
@@ -324,12 +306,14 @@ def add_team_elo(df: pd.DataFrame):
     # read data/team_elo.csv
     df_elo = pd.read_csv("data/team_elo.csv")
     # add a column to df for home team elo and away team elo
+    print(df_elo.columns)
     for elo_column in [col for col in df_elo.columns if col != "Team"]:
         # Create a dictionary for quick lookup for the current ELO column
         elo_dict = df_elo.set_index("Team")[elo_column].to_dict()
         # Add corresponding home and away ELO columns to df_matches
-        df[f"f_{elo_column.lower()}_home"] = df["HomeTeam"].map(elo_dict)
-        df[f"f_{elo_column.lower()}_away"] = df["AwayTeam"].map(elo_dict)
+        df[f"f_elo_{elo_column}_home"] = df["HomeTeam"].map(elo_dict)
+        df[f"f_elo_{elo_column}_away"] = df["AwayTeam"].map(elo_dict)
+    df = df.fillna(0)
     return df.copy()
 
 
@@ -349,7 +333,7 @@ if __name__ == "__main__":
     print("Data cleaned shape:", data_cleaned.shape)
     # TODO: move this somewhere else
     # optimize_ema(data_cleaned)
-    ema_span = 50
+    ema_span = 30
     data_features = create_ema_features(data_cleaned, ema_span)
     print("Data ema features shape:", data_features.shape)
     data_restructured = restructure_data(data_features)
@@ -358,5 +342,5 @@ if __name__ == "__main__":
     print("Data shape after adding seasonal features:", data_with_stats.shape)
     data_final = add_team_elo(data_with_stats)
     print("Data shape after adding team elo:", data_final.shape)
-    print("ok")
+    print("Writing data to file")
     data_final.to_csv(f"data/features_17_24_ema_span={ema_span}.csv", index=False)

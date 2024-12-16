@@ -1,5 +1,7 @@
 import pandas as pd
 from sklearn.model_selection import TimeSeriesSplit, train_test_split
+from imblearn.over_sampling import RandomOverSampler, SMOTE
+from collections import Counter
 import xgboost as xgb
 import numpy as np
 from sklearn.metrics import accuracy_score
@@ -36,17 +38,26 @@ def train_full(file_path):
         "f_HTFormPtsStr",
         "f_ATFormPtsStr",
     ]
+    elo_cols = [col for col in data.columns if col.startswith("f_el")]
+
     # X = all non object columns
     data = data.drop(columns=object_columns)
     X = data[[col for col in data.columns if col.startswith("f_")]]
     scaler = StandardScaler()
     X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
-
+    # print("Resampled dataset shape %s" % Counter(y_res))
     # Split the data into training and testing sets
     # split 80-20 first 80% for training, 20% for testing
     X_train, X_test = X[: int(0.8 * len(X))], X[int(0.8 * len(X)) :]
     y_train, y_test = y[: int(0.8 * len(y))], y[int(0.8 * len(y)) :]
-
+    oversampler = SMOTE(k_neighbors=2)
+    # oversampler = RandomOverSampler()
+    # find rows of X_train that have NAN values
+    X_res, y_res = oversampler.fit_resample(X_train, y_train)
+    X_train, y_train = X_res, y_res
+    # print shapes
+    print("Y_TRAIN", Counter(y_train))
+    print("Y_TEST", Counter(y_test))
     save_path = "models/full_data_params.pkl"
     best_params = None
     # check if save path exists
@@ -112,5 +123,5 @@ def train_full(file_path):
 
 
 train_full(
-    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_ema_span=50.csv"
+    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_ema_span=30.csv"
 )
