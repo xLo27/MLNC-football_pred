@@ -13,15 +13,11 @@ import pickle
 import matplotlib.pyplot as plt
 
 
-def train_full(file_path):
-    # Load the CSV file
-    data = pd.read_csv(file_path, encoding="latin1").sort_values(
-        by="Date", ascending=True
-    )
-    print(data.shape)
+def prepare_data(data: pd.DataFrame):
     data["FTR"] = data["FTR"].astype("category")
     label_encoder = LabelEncoder()
-    data["FTR"] = label_encoder.fit_transform(data["FTR"])
+    label_encoder.fit(data["FTR"])
+    data["FTR"] = label_encoder.transform(data["FTR"])
     y = data["FTR"]
     # Prepare the data
     object_columns = [
@@ -38,18 +34,28 @@ def train_full(file_path):
         "f_HTFormPtsStr",
         "f_ATFormPtsStr",
     ]
-    elo_cols = [col for col in data.columns if col.startswith("f_el")]
-    pi_cols = [col for col in data.columns if col.startswith("f_pi")]
+    # elo_cols = [col for col in data.columns if col.startswith("f_el")]
+    # pi_cols = [col for col in data.columns if col.startswith("f_pi")]
     # X = all non object columns
-    data = data.drop(columns=object_columns + pi_cols)
+    data = data.drop(columns=object_columns)
     X = data[[col for col in data.columns if col.startswith("f_")]]
     scaler = StandardScaler()
     X = pd.DataFrame(scaler.fit_transform(X), columns=X.columns)
+    return X, y, label_encoder
+
+
+def train_full(file_path):
+    # Load the CSV file
+    data = pd.read_csv(file_path).sort_values(by="Date", ascending=True)
+    print(data.shape)
+    X, y, encoder = prepare_data(data)
+
     # print("Resampled dataset shape %s" % Counter(y_res))
-    X_train, X_test = X[: int(0.8 * len(X))], X[int(0.8 * len(X)) :]
-    y_train, y_test = y[: int(0.8 * len(y))], y[int(0.8 * len(y)) :]
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, shuffle=False
+    )
     # Resample the training data
-    # oversampler = SMOTE(k_neighbors=3, random_state=1000)
+    # oversampler = SMOTE(k_neighbors=10, random_state=1000)
     oversampler = RandomOverSampler(random_state=1000)
     # oversampler = ADASYN(random_state=1000)
     X_res, y_res = oversampler.fit_resample(X_train, y_train)
@@ -58,7 +64,7 @@ def train_full(file_path):
     print("X_TRAIN", X_train.shape)
     print("Y_TRAIN", Counter(y_train))
     print("Y_TEST", Counter(y_test))
-    save_path = "models/full_data_params.pkl"
+    save_path = "models/xgb_params_full.pkl"
     best_params = None
     # check if save path exists
     try:
@@ -107,6 +113,9 @@ def train_full(file_path):
     )
     print(y_train.value_counts())
     xgb_best.fit(X_train, y_train)
+    # save model
+    with open("models/xgb_model_best", "wb") as f:
+        pickle.dump(xgb_best, f)
     y_pred = xgb_best.predict(X_test)
     print("predictions")
     print(pd.DataFrame(y_pred).value_counts())
@@ -124,6 +133,7 @@ def train_full(file_path):
     plt.show()
 
 
-train_full(
-    "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_full_ema_span=30.csv"
-)
+if __name__ == "__main__":
+    train_full(
+        "C:/Users/super/Documents/UCL/CS/workspace/serious/MLNC-CW/data/features_17_24_full_ema_span=30.csv"
+    )

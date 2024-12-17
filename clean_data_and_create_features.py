@@ -2,9 +2,9 @@ import pandas as pd
 from datetime import datetime
 import numpy as np
 import os
+from pi_rating import prepare_data_for_pi, get_pi_ratings
 from util_training import get_cv_score
 import matplotlib.pyplot as plt
-from pi_rating import prepare_data_for_pi, get_pi_ratings
 
 
 def drop_duplicate_columns(data: pd.DataFrame) -> pd.DataFrame:
@@ -31,6 +31,7 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
     data = drop_duplicate_columns(data)
     print("After dropping duplicate columns:", len(data), len(data.columns))
 
+    # An "@" in the column indicates that the team is playing at home
     data["HomeGame"] = data["Unnamed: 13"].eq("@")
     data = data.drop(columns=["Unnamed: 13", "Match Report", "Comp", "Rk"])
     print("After dropping columns:", len(data), len(data.columns))
@@ -46,7 +47,6 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
         ),
         axis=1,
     )
-    name_map = {"1/3.1": "Carries_1/3", "Att": "Att_passes", "Att.1": "Att_passes_"}
     opta_cols = [
         "xG",
         "npxG",
@@ -61,17 +61,6 @@ def clean_data(data: pd.DataFrame) -> pd.DataFrame:
     ]
     # TODO: Figure out if should include these
     data = data.drop(columns=opta_cols)
-
-    # print to file ambiguous named columns (sorted)
-    # lines = []
-    # with open("ambiguous_columns.txt", "w") as f:
-    #     for column in data.columns:
-    #         if "." in column:
-    #             lines.append(column)
-    #     lines.sort()
-    #     for line in lines:
-    #         f.write(line + "\n")
-
     return data.copy()
 
 
@@ -93,7 +82,6 @@ def restructure_data(data: pd.DataFrame):
     """
     Merge the data such that each row represents features for both the home and away team in a particular match.
     """
-    non_feature_cols = ["Date", "FTR", "HomeTeam", "AwayTeam"]
     unwanted_cols = ["Opp_home", "Opp_away", "HomeGame_home", "HomeGame_away"]
     data_merged = (
         data.query("HomeGame == True")
@@ -117,7 +105,9 @@ def restructure_data(data: pd.DataFrame):
         )
     )
     data_merged = data_merged.drop(columns=unwanted_cols)
-    return data_merged.reset_index(drop=True)
+    return data_merged.drop_duplicates(
+        subset=["Date", "HomeTeam", "AwayTeam"]
+    ).reset_index(drop=True)
 
 
 def add_seasonal_features(df: pd.DataFrame):
@@ -322,9 +312,6 @@ def transform_data_full(raw_data, ema_span=30):
     data_features = create_ema_features(data_cleaned, ema_span)
     print("Data ema features shape:", data_features.shape)
     data_restructured = restructure_data(data_features)
-    data_restructured = data_restructured.drop_duplicates(
-        subset=["Date", "HomeTeam", "AwayTeam"]
-    )
     print("Data restructured shape:", data_restructured.shape)
     df_features = add_seasonal_features(data_restructured)
     print("Data shape after adding seasonal features:", df_features.shape)
